@@ -37,7 +37,7 @@ class HashObjectCommand {
             const completeFolderPath = path.join(process.cwd(), '.git', 'object', folder);
 
             if(!fs.existsSync(completeFolderPath)){
-                fs.mkdirSync(completeFolderPath);
+                fs.mkdirSync(completeFolderPath, { recursive: true });
             }
 
             const compressData = zlib.deflateSync(blob)
