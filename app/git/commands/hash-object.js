@@ -34,7 +34,7 @@ class HashObjectCommand {
             const folder = hash.slice(0, 2);
             const file = hash.slice(2);
 
-            const completeFolderPath = path.join(process.cwd(), '.git', 'object', folder);
+            const completeFolderPath = path.join(process.cwd(), '.git', 'objects', folder);
 
             if(!fs.existsSync(completeFolderPath)){
                 fs.mkdirSync(completeFolderPath, { recursive: true });
