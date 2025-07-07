@@ -7,7 +7,7 @@ const GitClient = require('./git/client')
 const {CatFileCommand} = require('./git/commands')
 
 // You can use print statements as follows for debugging, they'll be visible when running tests.
-console.error("Logs from your program will appear here!");
+
 
 const gitClient = new GitClient();
 
@@ -41,5 +41,4 @@ function handleCatFileCommand() {
     const command = new CatFileCommand(flag, commitSHA);
     gitClient.run(command)
 
-    console.log({flag, commitSHA})
 }
