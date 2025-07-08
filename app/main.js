@@ -4,7 +4,7 @@ const path = require("path");
 const GitClient = require('./git/client')
 
 //commands
-const { CatFileCommand, HashObjectCommand, LSTreeCommand, WriteTreeCommand, CommitTreeCommand } = require('./git/commands')
+const { CatFileCommand, HashObjectCommand, LSTreeCommand, WriteTreeCommand, CommitTreeCommand, CloneCommand} = require('./git/commands')
 
 // You can use print statements as follows for debugging, they'll be visible when running tests.
 
