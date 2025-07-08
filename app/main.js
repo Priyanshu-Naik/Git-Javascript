@@ -4,7 +4,7 @@ const path = require("path");
 const GitClient = require('./git/client')
 
 //commands
-const {CatFileCommand, HashObjectCommand, LSTreeCommand, WriteTreeCommand, CommitTreeCommand} = require('./git/commands')
+const { CatFileCommand, HashObjectCommand, LSTreeCommand, WriteTreeCommand, CommitTreeCommand } = require('./git/commands')
 
 // You can use print statements as follows for debugging, they'll be visible when running tests.
 
@@ -15,9 +15,9 @@ const gitClient = new GitClient();
 const command = process.argv[2];
 //
 switch (command) {
-  case "init":
-    createGitDirectory();
-    break;
+    case "init":
+        createGitDirectory();
+        break;
     case 'cat-file':
         handleCatFileCommand();
         break;
@@ -26,24 +26,27 @@ switch (command) {
         break;
     case 'ls-tree':
         handleLsTreeCommand();
-        break;  
+        break;
     case 'write-tree':
         handleWriteTreeCommand();
-        break; 
+        break;
     case 'commit-tree':
         handleCommitTreeCommand();
-        break;         
-  default:
-    throw new Error(`Unknown command ${command}`);
+        break;
+    case 'clone':
+        handleCloneCommand();
+        break;
+    default:
+        throw new Error(`Unknown command ${command}`);
 }
 
 function createGitDirectory() {
-  fs.mkdirSync(path.join(process.cwd(), ".git"), { recursive: true });
-  fs.mkdirSync(path.join(process.cwd(), ".git", "objects"), { recursive: true });
-  fs.mkdirSync(path.join(process.cwd(), ".git", "refs"), { recursive: true });
+    fs.mkdirSync(path.join(process.cwd(), ".git"), { recursive: true });
+    fs.mkdirSync(path.join(process.cwd(), ".git", "objects"), { recursive: true });
+    fs.mkdirSync(path.join(process.cwd(), ".git", "refs"), { recursive: true });
 
-  fs.writeFileSync(path.join(process.cwd(), ".git", "HEAD"), "ref: refs/heads/main\n");
-  console.log("Initialized git directory");
+    fs.writeFileSync(path.join(process.cwd(), ".git", "HEAD"), "ref: refs/heads/main\n");
+    console.log("Initialized git directory");
 }
 
 function handleCatFileCommand() {
@@ -55,11 +58,11 @@ function handleCatFileCommand() {
 
 }
 
-function handleHashObjectCommand(){
+function handleHashObjectCommand() {
     let flag = process.argv[3];
-    let filepath =  process.argv[4];
+    let filepath = process.argv[4];
 
-    if(!filepath){
+    if (!filepath) {
         filepath = flag;
         flag = null;
     }
@@ -70,11 +73,11 @@ function handleHashObjectCommand(){
 
 function handleLsTreeCommand() {
     let flag = process.argv[3];
-    let sha =  process.argv[4];
+    let sha = process.argv[4];
 
-    if(!sha && flag === "--name-only") return;
+    if (!sha && flag === "--name-only") return;
 
-    if(!sha){
+    if (!sha) {
         sha = flag;
         flag = null;
     }
@@ -94,5 +97,18 @@ function handleCommitTreeCommand() {
     const commitMessage = process.argv[7];
 
     const command = new CommitTreeCommand(tree, commitSHA, commitMessage);
+    gitClient.run(command);
+}
+
+function handleCloneCommand() {
+    const repoUrl = process.argv[3];
+    const directory = process.argv[4];
+
+    if (!repoUrl || !directory) {
+        console.error("Usage: clone <repo-url> <directory>");
+        process.exit(1);
+    }
+
+    const command = new CloneCommand(repoUrl, directory);
     gitClient.run(command);
 }
