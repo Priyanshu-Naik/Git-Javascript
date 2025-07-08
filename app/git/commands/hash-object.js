@@ -24,8 +24,6 @@ class HashObjectCommand {
         const header = `blob ${fileLength}\0`;
         const blob = Buffer.concat([Buffer.from(header), fileContents]);
 
-        //compress the blob
-
         //calculate blob
         const hash = crypto.createHash("sha1").update(blob).digest("hex");
 
@@ -40,6 +38,7 @@ class HashObjectCommand {
                 fs.mkdirSync(completeFolderPath, { recursive: true });
             }
 
+            //compress the blob
             const compressData = zlib.deflateSync(blob)
             fs.writeFileSync(
                 path.join(completeFolderPath, file), compressData
