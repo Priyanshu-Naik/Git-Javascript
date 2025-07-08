@@ -35,7 +35,7 @@ class WriteTreeCommand {
     execute() {
         //recirsive read all files and dir
         function recursiveCreateTree(basePath) {
-            const dirContents = fs.readFileSync(basePath);
+            const dirContents = fs.readdirSync(basePath);
             const result = [];
 
             for (const dirContent of dirContents) {
