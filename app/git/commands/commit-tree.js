@@ -20,7 +20,7 @@ class CommitTreeCommand {
         ]);
 
         const commitHeader = `commit ${commitContentBuffer.length}\0`;
-        const data = Buffer.concat(Buffer.from(commitHeader), commitContentBuffer);
+        const data = Buffer.concat([Buffer.from(commitHeader), commitContentBuffer]);
 
         const hash = crypto.createHash("sha1").update(data).digest("hex");
 
