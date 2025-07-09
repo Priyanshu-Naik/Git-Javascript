@@ -160,8 +160,6 @@ class CloneCommand {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
 
                 const baseShaLength = 20;
-
-                // Read the base SHA
                 const shaBytes = pack.slice(offset, offset + baseShaLength);
                 console.log("  Base SHA (hex):", shaBytes.toString("hex"));
                 offset += baseShaLength;
@@ -169,19 +167,18 @@ class CloneCommand {
                 const preview = pack.slice(offset, offset + 10);
                 console.log("  Raw before zlib (ref-delta):", preview.toString("hex"));
 
-                // ✅ SKIP decompressing — just find zlib and skip over it
+                // Attempt to find zlib start and decompress
                 const zlibOffset = findZlibStart(pack.slice(offset));
                 const zlibStart = offset + zlibOffset;
+                const zlibBuf = pack.slice(zlibStart);
 
-                const dummy = pack.slice(zlibStart);
                 let consumed = 0;
-
                 try {
-                    const result = zlib.inflateSync(dummy);
-                    consumed = result.length;
+                    const result = zlib.inflateSync(zlibBuf);
+                    consumed = zlibBuf.length - result.length; // Estimate bytes consumed
                 } catch (err) {
-                    console.log("  ⚠️ Not decompressing delta — skipping raw.");
-                    consumed = 100; // rough guess
+                    console.log("  ⚠️ Not decompressing delta — estimating 300 bytes");
+                    consumed = 300; // use larger estimate
                 }
 
                 offset = zlibStart + consumed;
