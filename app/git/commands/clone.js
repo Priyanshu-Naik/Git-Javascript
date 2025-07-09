@@ -84,6 +84,52 @@ class CloneCommand {
         return lines;
     }
 
+    readAndInflate(buffer) {
+        for (let i = 1; i < buffer.length; i++) {
+            try {
+                const slice = buffer.slice(0, i);
+                const inflated = zlib.inflateSync(slice);
+                return { object: inflated, consumed: i };
+            } catch (e) {
+                continue;
+            }
+        }
+        throw new Error("Unable to inflate object");
+    }
+
+    decodePackHeader(buffer, offset) {
+        let byte = buffer[offset];
+        let size = byte & 0b1111; // lower 4 bits
+        let typeCode = (byte >> 4) & 0b111; // bits 4-6
+        let shift = 4;
+        let i = 1;
+
+        while (byte & 0b10000000) {
+            byte = buffer[offset + i];
+            size |= (byte & 0b01111111) << shift;
+            shift += 7;
+            i++;
+        }
+
+        const typeMap = {
+            1: 'commit',
+            2: 'tree',
+            3: 'blob',
+            4: 'tag',
+            6: 'ofs-delta',
+            7: 'ref-delta'
+        };
+
+        const type = typeMap[typeCode];
+        if (!type) throw new Error(`Unsupported object type code: ${typeCode}`);
+
+        return {
+            type,
+            size,
+            headerSize: i
+        };
+    }
+
     unpackPack(data) {
         if (!Buffer.isBuffer(data)) {
             throw new Error("Expected data to be a Buffer");
@@ -149,16 +195,6 @@ class CloneCommand {
         return { type: types[type], size, headerSize };
     }
 
-    readAndInflate(buf) {
-        for (let i = 1; i < buf.length; i++) {
-            try {
-                const result = zlib.inflateSync(buf.slice(0, i));
-                return { object: result, consumed: i };
-            } catch (e) { continue; }
-        }
-        throw new Error("Failed to inflate object");
-    }
-
     writeObjects(objects) {
         for (const sha in objects) {
             const folder = sha.slice(0, 2);
@@ -187,6 +223,37 @@ class CloneCommand {
             });
             req.on("error", reject);
             if (body) req.write(body);
+            req.end();
+        });
+    }
+
+    httpPostPack(urlPath, bodyBuffer) {
+        const { hostname } = new URL(this.repoUrl);
+
+        const options = {
+            hostname,
+            path: urlPath,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-git-upload-pack-request',
+                'User-Agent': 'git/1.0',
+                'Accept': '*/*',
+                'Content-Length': bodyBuffer.length,
+            },
+        };
+
+        return new Promise((resolve, reject) => {
+            const req = https.request(options, (res) => {
+                const chunks = [];
+                res.on('data', chunk => chunks.push(chunk));
+                res.on('end', () => {
+                    const fullBuffer = Buffer.concat(chunks);
+                    resolve(fullBuffer);
+                });
+            });
+
+            req.on('error', reject);
+            req.write(bodyBuffer);
             req.end();
         });
     }
