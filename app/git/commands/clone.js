@@ -35,6 +35,7 @@ class CloneCommand {
 
         const refs = this.parseRefs(refsBuffer);
         const headHash = refs['HEAD'];
+        if (!headHash) throw new Error("HEAD hash missing from refs");
 
         // Step 3: Fetch pack data
         const packData = await this.fetchPack(hostname, pathname, headHash);
@@ -101,39 +102,40 @@ class CloneCommand {
     }
 
     encodePktLine(line) {
-        const length = (line.length / 2 + 4).toString(16).padStart(4, "0");
-        return Buffer.from(length + line, "utf8");
+        const totalLength = (line.length + 4).toString(16).padStart(4, "0");
+        return Buffer.from(totalLength + line, "utf8");
     }
 
     parseRefs(data) {
-        let buffer = Buffer.from(data);
-
-        // Skip the first line: "# service=git-upload-pack"
+        const buffer = Buffer.from(data);
         let offset = 0;
+        let refs = {};
+
         while (offset < buffer.length) {
-            const lineLengthHex = buffer.slice(offset, offset + 4).toString();
-            const lineLength = parseInt(lineLengthHex, 16);
+            const lenHex = buffer.slice(offset, offset + 4).toString();
+            const len = parseInt(lenHex, 16);
+            if (len === 0) break;
 
-            if (lineLength === 0) {
-                offset += 4;
-                break; // pkt-flush
-            }
+            const line = buffer.slice(offset + 4, offset + len).toString();
+            const [hash, ref] = line.trim().split(/\s+/);
+            if (hash && ref) refs[ref] = hash;
 
-            const line = buffer.slice(offset + 4, offset + lineLength).toString();
-            if (line.includes('HEAD')) {
-                const [hash] = line.split(' ');
-                this.headHash = hash;
-                return;
-            }
-
-            offset += lineLength;
+            offset += len;
         }
 
-        throw new Error("HEAD ref not found");
+        if (!refs['HEAD'] && refs['refs/heads/main']) {
+            refs['HEAD'] = refs['refs/heads/main'];
+        }
+
+        if (!refs['HEAD']) {
+            throw new Error("HEAD ref not found");
+        }
+
+        return refs;
     }
 
     unpackPack(buffer) {
-        const packStart = buffer.indexOf("PACK");
+        const packStart = buffer.indexOf(Buffer.from("PACK"));
         if (packStart === -1) throw new Error("PACK header not found");
 
         const packBuffer = buffer.slice(packStart);
