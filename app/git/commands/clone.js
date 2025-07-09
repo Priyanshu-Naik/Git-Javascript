@@ -1,14 +1,13 @@
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
-const zlib = require("zlib");
 const crypto = require("crypto");
+const zlib = require("zlib");
 
 class CloneCommand {
     constructor(url, directory) {
-        this.repoUrl = url;
+        this.repoUrl = url.endsWith(".git") ? url : url + ".git";
         this.destDir = directory;
-        this.parsedUrl = new URL(url);
     }
 
     async execute() {
@@ -20,105 +19,118 @@ class CloneCommand {
         fs.mkdirSync(this.destDir, { recursive: true });
         process.chdir(this.destDir);
 
-        this.createGitDirectory();
+        // Step 1: Create .git directory structure
+        fs.mkdirSync(".git/objects", { recursive: true });
+        fs.mkdirSync(".git/refs/heads", { recursive: true });
 
-        const refsData = await this.fetchRefs();
-        const headHash = this.extractHeadRef(refsData);
+        // Step 2: Fetch refs
+        const { hostname, pathname } = new URL(this.repoUrl);
+        const refsBuffer = await this.httpGetBuffer({
+            hostname,
+            path: `${pathname}/info/refs?service=git-upload-pack`,
+            headers: {
+                'User-Agent': 'git/1.0',
+            },
+        });
 
-        const rawResponse = await this.fetchPack(headHash);
-        const packData = this.extractSidebandData(rawResponse);
+        const refs = this.parseRefs(refsBuffer);
+        const headHash = refs['HEAD'];
+
+        // Step 3: Fetch pack data
+        const packData = await this.fetchPack(hostname, pathname, headHash);
         const objects = this.unpackPack(packData);
 
-        this.writeObjects(objects);
-        this.writeHEAD(headHash);
+        // Step 4: Write objects
+        for (const [sha, objectBuffer] of Object.entries(objects)) {
+            const folder = sha.slice(0, 2);
+            const file = sha.slice(2);
+            const dirPath = path.join(".git", "objects", folder);
+            fs.mkdirSync(dirPath, { recursive: true });
+            fs.writeFileSync(
+                path.join(dirPath, file),
+                zlib.deflateSync(objectBuffer)
+            );
+        }
+
+        // Step 5: Write HEAD and refs
+        fs.writeFileSync(".git/HEAD", "ref: refs/heads/main\n");
+        fs.writeFileSync(".git/refs/heads/main", headHash + "\n");
 
         console.log("Cloning completed.");
     }
 
-    createGitDirectory() {
-        fs.mkdirSync(".git/objects", { recursive: true });
-        fs.mkdirSync(".git/refs/heads", { recursive: true });
+    httpGetBuffer(options) {
+        return new Promise((resolve, reject) => {
+            const chunks = [];
+            const req = https.request({ ...options, method: "GET" }, res => {
+                res.on("data", chunk => chunks.push(chunk));
+                res.on("end", () => resolve(Buffer.concat(chunks)));
+            });
+            req.on("error", reject);
+            req.end();
+        });
     }
 
-    fetchRefs() {
-        const options = {
-            hostname: this.parsedUrl.hostname,
-            path: this.parsedUrl.pathname + "/info/refs?service=git-upload-pack",
-            method: "GET",
-            headers: { "User-Agent": "git/1.0" }
-        };
+    fetchPack(hostname, pathname, hash) {
+        const body = Buffer.concat([
+            this.encodePktLine(`0032want ${hash} multi_ack_detailed side-band-64k\n`),
+            this.encodePktLine("00000009done\n"),
+        ]);
 
-        return this.httpRequest(options);
+        return new Promise((resolve, reject) => {
+            const req = https.request({
+                hostname,
+                path: `${pathname}/git-upload-pack`,
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-git-upload-pack-request",
+                    "User-Agent": "git/1.0",
+                    "Accept": "*/*",
+                    "Content-Length": body.length,
+                },
+            }, res => {
+                const chunks = [];
+                res.on("data", chunk => chunks.push(chunk));
+                res.on("end", () => resolve(Buffer.concat(chunks)));
+            });
+
+            req.on("error", reject);
+            req.write(body);
+            req.end();
+        });
     }
 
-    extractHeadRef(data) {
-        const lines = data.split("\n");
+    encodePktLine(line) {
+        const length = (line.length / 2 + 4).toString(16).padStart(4, "0");
+        return Buffer.from(length + line, "utf8");
+    }
+
+    parseRefs(buffer) {
+        const refs = {};
+        const lines = buffer.toString().split("\n");
+
         for (const line of lines) {
-            if (line.includes("HEAD")) {
-                return line.substring(4, 44); // skip pkt-line prefix
+            const match = line.match(/^([0-9a-f]{40}) HEAD/);
+            if (match) {
+                refs["HEAD"] = match[1];
+                break;
             }
         }
-        throw new Error("HEAD ref not found");
-    }
 
-    async fetchPack(sha) {
-        const body = this.buildUploadPackRequest(sha);
-        const options = {
-            hostname: this.parsedUrl.hostname,
-            path: this.parsedUrl.pathname + "/git-upload-pack",
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-git-upload-pack-request",
-                "User-Agent": "git/1.0",
-                "Content-Length": Buffer.byteLength(body)
-            }
-        };
-
-        return this.httpRequest(options, body, true);
-    }
-
-    buildUploadPackRequest(sha) {
-        const pkt = (s) => s.length ? `${(s.length + 4).toString(16).padStart(4, "0")}${s}` : "0000";
-        return (
-            pkt(`want ${sha} multi_ack_detailed side-band-64k thin-pack ofs-delta agent=git/1.0\n`) +
-            pkt("") + // flush
-            pkt("done\n")
-        );
-    }
-
-    extractSidebandData(buffer) {
-        const chunks = [];
-        let offset = 0;
-
-        while (offset + 4 <= buffer.length) {
-            const lengthHex = buffer.toString('utf8', offset, offset + 4);
-            const length = parseInt(lengthHex, 16);
-
-            if (length === 0) break;
-
-            const band = buffer[offset + 4];
-            const dataStart = offset + 5;
-            const dataEnd = offset + length;
-
-            const data = buffer.slice(dataStart, dataEnd);
-            if (band === 1) chunks.push(data); // channel 1: packfile
-
-            offset += length;
+        if (!refs["HEAD"]) {
+            throw new Error("HEAD ref not found");
         }
 
-        return Buffer.concat(chunks);
+        return refs;
     }
 
-    unpackPack(data) {
-        const packSignature = Buffer.from("PACK");
-        const packStart = data.indexOf(packSignature);
-
+    unpackPack(buffer) {
+        const packStart = buffer.indexOf("PACK");
         if (packStart === -1) throw new Error("PACK header not found");
 
-        const packBuffer = data.slice(packStart);
+        const packBuffer = buffer.slice(packStart);
         const count = packBuffer.readUInt32BE(8);
         let offset = 12;
-
         const objects = {};
 
         for (let i = 0; i < count; i++) {
@@ -130,8 +142,8 @@ class CloneCommand {
 
             const header = `${type} ${object.length}\0`;
             const fullObject = Buffer.concat([Buffer.from(header), object]);
-
             const sha = crypto.createHash("sha1").update(fullObject).digest("hex");
+
             objects[sha] = fullObject;
         }
 
@@ -139,70 +151,43 @@ class CloneCommand {
     }
 
     decodePackHeader(buffer, offset) {
-        let byte = buffer[offset];
-        let type = (byte >> 4) & 0b111;
+        const byte = buffer[offset];
+        const type = (byte >> 4) & 0b111;
         let size = byte & 0b1111;
         let shift = 4;
         let i = 1;
 
-        while (byte & 0b10000000) {
-            byte = buffer[offset + i];
-            size |= (byte & 0b01111111) << shift;
+        while (byte & 0x80) {
+            const b = buffer[offset + i];
+            size |= (b & 0x7f) << shift;
             shift += 7;
             i++;
+            if (!(b & 0x80)) break;
         }
 
-        const typeMap = { 1: "commit", 2: "tree", 3: "blob" };
+        const typeMap = {
+            1: "commit",
+            2: "tree",
+            3: "blob",
+        };
+
         return {
             type: typeMap[type] || "unknown",
             size,
-            headerSize: i
+            headerSize: i,
         };
     }
 
-    readAndInflate(buffer) {
-        for (let i = 1; i < buffer.length; i++) {
+    readAndInflate(slice) {
+        for (let i = 1; i < slice.length; i++) {
             try {
-                const slice = buffer.slice(0, i);
-                const inflated = zlib.inflateSync(slice);
-                return { object: inflated, consumed: i };
+                const out = zlib.inflateSync(slice.slice(0, i));
+                return { object: out, consumed: i };
             } catch (e) {
                 continue;
             }
         }
-        throw new Error("Unable to inflate object");
-    }
-
-    writeObjects(objects) {
-        for (const sha in objects) {
-            const folder = sha.slice(0, 2);
-            const file = sha.slice(2);
-            const dirPath = path.join(".git", "objects", folder);
-            fs.mkdirSync(dirPath, { recursive: true });
-            const compressed = zlib.deflateSync(objects[sha]);
-            fs.writeFileSync(path.join(dirPath, file), compressed);
-        }
-    }
-
-    writeHEAD(sha) {
-        fs.writeFileSync(".git/HEAD", `ref: refs/heads/master\n`);
-        fs.writeFileSync(".git/refs/heads/master", `${sha}\n`);
-    }
-
-    httpRequest(options, body = null, binary = false) {
-        return new Promise((resolve, reject) => {
-            const req = https.request(options, (res) => {
-                const chunks = [];
-                res.on("data", chunk => chunks.push(chunk));
-                res.on("end", () => {
-                    const result = Buffer.concat(chunks);
-                    resolve(binary ? result : result.toString("utf-8"));
-                });
-            });
-            req.on("error", reject);
-            if (body) req.write(body);
-            req.end();
-        });
+        throw new Error("Failed to inflate object");
     }
 }
 
