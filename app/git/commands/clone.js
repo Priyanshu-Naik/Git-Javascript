@@ -25,7 +25,8 @@ class CloneCommand {
         const refsData = await this.fetchRefs();
         const headHash = this.extractHeadRef(refsData);
 
-        const packData = await this.fetchPack(headHash);
+        const rawResponse = await this.fetchPack(headHash);
+        const packData = this.extractSidebandData(rawResponse);
         const objects = this.unpackPack(packData);
 
         this.writeObjects(objects);
@@ -83,6 +84,29 @@ class CloneCommand {
             pkt("") + // flush
             pkt("done\n")
         );
+    }
+
+    extractSidebandData(buffer) {
+        const chunks = [];
+        let offset = 0;
+
+        while (offset + 4 <= buffer.length) {
+            const lengthHex = buffer.toString('utf8', offset, offset + 4);
+            const length = parseInt(lengthHex, 16);
+
+            if (length === 0) break;
+
+            const band = buffer[offset + 4];
+            const dataStart = offset + 5;
+            const dataEnd = offset + length;
+
+            const data = buffer.slice(dataStart, dataEnd);
+            if (band === 1) chunks.push(data); // channel 1: packfile
+
+            offset += length;
+        }
+
+        return Buffer.concat(chunks);
     }
 
     unpackPack(data) {
