@@ -61,14 +61,13 @@ class CloneCommand {
         return this.httpRequest(options);
     }
 
-    extractHeadSHA(refData) {
+    eextractHeadSHA(refData) {
         const lines = refData.split("\n");
 
         for (const line of lines) {
-            const parts = line.trim().split(" ");
-            if (parts.length === 2 && parts[1].includes("HEAD")) {
-                const shaMatch = parts[0].match(/^[a-f0-9]{40}$/);
-                if (shaMatch) return shaMatch[0];
+            if (line.includes("refs/heads/master")) {
+                const match = line.match(/[a-f0-9]{40}/);
+                if (match) return match[0];
             }
         }
 
