@@ -26,10 +26,9 @@ class CloneCommand {
         const headHash = this.extractHeadRef(refsData);
 
         const packData = await this.fetchPack(headHash);
-        const { objects } = this.unpackPack(packData);
+        const objects = this.unpackPack(packData);
 
         this.writeObjects(objects);
-
         this.writeHEAD(headHash);
 
         console.log("Cloning completed.");
@@ -55,7 +54,7 @@ class CloneCommand {
         const lines = data.split("\n");
         for (const line of lines) {
             if (line.includes("HEAD")) {
-                return line.slice(4, 44); // skip pkt-line header
+                return line.substring(4, 44); // skip pkt-line prefix
             }
         }
         throw new Error("HEAD ref not found");
@@ -79,89 +78,26 @@ class CloneCommand {
 
     buildUploadPackRequest(sha) {
         const pkt = (s) => s.length ? `${(s.length + 4).toString(16).padStart(4, "0")}${s}` : "0000";
-        let lines = pkt(`0032want ${sha} multi_ack_detailed side-band-64k thin-pack ofs-delta agent=git/1.0\n`);
-        lines += pkt("00000009done\n");
-        return lines;
-    }
-
-    readAndInflate(buffer) {
-        for (let i = 1; i < buffer.length; i++) {
-            try {
-                const slice = buffer.slice(0, i);
-                const inflated = zlib.inflateSync(slice);
-                return { object: inflated, consumed: i };
-            } catch (e) {
-                continue;
-            }
-        }
-        throw new Error("Unable to inflate object");
-    }
-
-    decodePackHeader(buffer, offset) {
-        let byte = buffer[offset];
-        let size = byte & 0b1111; // lower 4 bits
-        let typeCode = (byte >> 4) & 0b111; // bits 4-6
-        let shift = 4;
-        let i = 1;
-
-        while (byte & 0b10000000) {
-            byte = buffer[offset + i];
-            size |= (byte & 0b01111111) << shift;
-            shift += 7;
-            i++;
-        }
-
-        const typeMap = {
-            1: 'commit',
-            2: 'tree',
-            3: 'blob',
-            4: 'tag',
-            6: 'ofs-delta',
-            7: 'ref-delta'
-        };
-
-        const type = typeMap[typeCode];
-        if (!type) throw new Error(`Unsupported object type code: ${typeCode}`);
-
-        return {
-            type,
-            size,
-            headerSize: i
-        };
+        return (
+            pkt(`want ${sha} multi_ack_detailed side-band-64k thin-pack ofs-delta agent=git/1.0\n`) +
+            pkt("") + // flush
+            pkt("done\n")
+        );
     }
 
     unpackPack(data) {
-        if (!Buffer.isBuffer(data)) {
-            throw new Error("Expected data to be a Buffer");
-        }
-
         const packSignature = Buffer.from("PACK");
         const packStart = data.indexOf(packSignature);
 
-        if (packStart === -1) {
-            throw new Error("PACK header not found");
-        }
+        if (packStart === -1) throw new Error("PACK header not found");
 
-        const packBuffer = data.slice(packStart); // This is a Buffer now, not a string
-
-        const objects = {};
-
-        // Validate buffer length before reading
-        if (packBuffer.length < 12) {
-            throw new Error("Invalid pack buffer, too small");
-        }
-
+        const packBuffer = data.slice(packStart);
         const count = packBuffer.readUInt32BE(8);
         let offset = 12;
 
-        console.log("Buffer length:", packBuffer.length);
-        console.log("Object count:", count);
+        const objects = {};
 
         for (let i = 0; i < count; i++) {
-            if (offset >= packBuffer.length) {
-                throw new Error(`Offset ${offset} out of bounds while reading object ${i}`);
-            }
-
             const { type, size, headerSize } = this.decodePackHeader(packBuffer, offset);
             offset += headerSize;
 
@@ -178,21 +114,39 @@ class CloneCommand {
         return objects;
     }
 
-    decodePackHeader(buf, offset) {
-        let c = buf[offset];
-        let type = (c >> 4) & 0x7;
-        let size = c & 0xf;
+    decodePackHeader(buffer, offset) {
+        let byte = buffer[offset];
+        let type = (byte >> 4) & 0b111;
+        let size = byte & 0b1111;
         let shift = 4;
-        let headerSize = 1;
+        let i = 1;
 
-        while (c & 0x80) {
-            c = buf[offset + headerSize++];
-            size |= (c & 0x7f) << shift;
+        while (byte & 0b10000000) {
+            byte = buffer[offset + i];
+            size |= (byte & 0b01111111) << shift;
             shift += 7;
+            i++;
         }
 
-        const types = { 1: "commit", 2: "tree", 3: "blob" };
-        return { type: types[type], size, headerSize };
+        const typeMap = { 1: "commit", 2: "tree", 3: "blob" };
+        return {
+            type: typeMap[type] || "unknown",
+            size,
+            headerSize: i
+        };
+    }
+
+    readAndInflate(buffer) {
+        for (let i = 1; i < buffer.length; i++) {
+            try {
+                const slice = buffer.slice(0, i);
+                const inflated = zlib.inflateSync(slice);
+                return { object: inflated, consumed: i };
+            } catch (e) {
+                continue;
+            }
+        }
+        throw new Error("Unable to inflate object");
     }
 
     writeObjects(objects) {
@@ -215,7 +169,7 @@ class CloneCommand {
         return new Promise((resolve, reject) => {
             const req = https.request(options, (res) => {
                 const chunks = [];
-                res.on("data", (chunk) => chunks.push(chunk));
+                res.on("data", chunk => chunks.push(chunk));
                 res.on("end", () => {
                     const result = Buffer.concat(chunks);
                     resolve(binary ? result : result.toString("utf-8"));
@@ -223,37 +177,6 @@ class CloneCommand {
             });
             req.on("error", reject);
             if (body) req.write(body);
-            req.end();
-        });
-    }
-
-    httpPostPack(urlPath, bodyBuffer) {
-        const { hostname } = new URL(this.repoUrl);
-
-        const options = {
-            hostname,
-            path: urlPath,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-git-upload-pack-request',
-                'User-Agent': 'git/1.0',
-                'Accept': '*/*',
-                'Content-Length': bodyBuffer.length,
-            },
-        };
-
-        return new Promise((resolve, reject) => {
-            const req = https.request(options, (res) => {
-                const chunks = [];
-                res.on('data', chunk => chunks.push(chunk));
-                res.on('end', () => {
-                    const fullBuffer = Buffer.concat(chunks);
-                    resolve(fullBuffer);
-                });
-            });
-
-            req.on('error', reject);
-            req.write(bodyBuffer);
             req.end();
         });
     }
