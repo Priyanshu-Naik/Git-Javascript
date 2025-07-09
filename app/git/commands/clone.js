@@ -22,12 +22,17 @@ class CloneCommand {
         this.initGitDirectory();
 
         const refsData = await this.fetchRefs();
+
+        console.log("Ref data:\n", refsData);
+
         const headSHA = this.extractHeadSHA(refsData);
 
         console.log("HEAD SHA:", headSHA);
         if (!/^[a-f0-9]{40}$/.test(headSHA)) {
             throw new Error("Invalid HEAD SHA received: " + headSHA);
         }
+
+        console.log("✅ Correct HEAD SHA:", headSHA);
 
         const packResponse = await this.fetchPackfile(headSHA);
         const packData = this.extractPackData(packResponse);
@@ -58,12 +63,15 @@ class CloneCommand {
 
     extractHeadSHA(refData) {
         const lines = refData.split("\n");
+
         for (const line of lines) {
-            if (line.includes("HEAD")) {
-                const match = line.match(/[a-f0-9]{40}/);
-                if (match) return match[0];
+            const parts = line.trim().split(" ");
+            if (parts.length === 2 && parts[1].includes("HEAD")) {
+                const shaMatch = parts[0].match(/^[a-f0-9]{40}$/);
+                if (shaMatch) return shaMatch[0];
             }
         }
+
         throw new Error("HEAD ref not found.");
     }
 
