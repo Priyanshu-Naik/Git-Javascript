@@ -142,7 +142,9 @@ class CloneCommand {
             const { type, size, headerSize } = this.decodePackHeader(pack, offset);
 
             console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, offset: ${offset}`);
-
+            const slice = pack.slice(offset, offset + 30);
+            console.log("Hex preview:", slice.toString("hex"));
+            
             offset += headerSize;
 
             if (type === "ref-delta") {
@@ -215,14 +217,15 @@ class CloneCommand {
     }
 
     readInflatedObject(buffer) {
-        for (let i = 20; i < buffer.length; i++) {
+        for (let i = 30; i < buffer.length; i++) {
             try {
                 const slice = buffer.slice(0, i);
                 const inflated = zlib.inflateSync(slice);
                 return { object: inflated, consumed: i };
             } catch (err) {
-                if (err.code === 'Z_BUF_ERROR' || err.message.includes("unexpected end of file")) {
-                    continue; // not enough data yet
+                // Continue trying if it's just a truncated stream
+                if (err.code === "Z_BUF_ERROR" || err.message.includes("unexpected end of file")) {
+                    continue;
                 } else {
                     throw err;
                 }
