@@ -172,13 +172,16 @@ class CloneCommand {
                 const zlibStart = offset + zlibOffset;
                 const zlibBuf = pack.slice(zlibStart);
 
-                let consumed = 0;
+
+                let result, consumed;
                 try {
-                    const result = zlib.inflateSync(zlibBuf);
-                    consumed = zlibBuf.length - result.length; // Estimate bytes consumed
+                    result = zlib.inflateSync(zlibBuf);
+                    consumed = result.length;
+                    offset = zlibStart + consumed;
                 } catch (err) {
-                    console.log("  ⚠️ Not decompressing delta — estimating 300 bytes");
-                    consumed = 300; // use larger estimate
+                    console.error("❌ Failed to inflate zlib stream at object", i + 1);
+                    console.error("Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
+                    throw err;
                 }
 
                 offset = zlibStart + consumed;
