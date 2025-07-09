@@ -159,12 +159,16 @@ class CloneCommand {
             if (type === "ref-delta") {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
 
-                const baseShaLength = 20; // 20-byte base object SHA
-                const start = offset + baseShaLength;
+                const baseShaLength = 20; // 20-byte SHA1 base reference
+                const deltaStart = offset + baseShaLength;
 
-                const zlibOffset = findZlibStart(pack.slice(start));
-                const { consumed } = this.readInflatedObject(pack.slice(start + zlibOffset));
+                // Find zlib start inside the delta (extra protection, optional)
+                const zlibOffset = findZlibStart(pack.slice(deltaStart));
+                const { consumed } = this.readInflatedObject(pack.slice(deltaStart + zlibOffset));
+
                 offset += baseShaLength + zlibOffset + consumed;
+
+                console.log(`✔️ Skipped ref-delta: consumed ${baseShaLength + zlibOffset + consumed} bytes`);
 
                 continue;
             }
