@@ -4,6 +4,15 @@ const path = require("path");
 const zlib = require("zlib");
 const crypto = require("crypto");
 
+function findZlibStart(buffer) {
+    for (let i = 0; i < 10; i++) {
+        if (buffer[i] === 0x78 && (buffer[i + 1] & 0xF0) === 0x90) { // basic zlib header
+            return i;
+        }
+    }
+    return 0;
+}
+
 class CloneCommand {
     constructor(url, directory) {
         this.repoUrl = url.endsWith(".git") ? url : url + ".git";
@@ -187,15 +196,6 @@ class CloneCommand {
         }
 
         return objects;
-    }
-
-    findZlibStart(buffer) {
-        for (let i = 0; i < 10; i++) {
-            if (buffer[i] === 0x78 && (buffer[i + 1] & 0xF0) === 0x90) {
-                return i;
-            }
-        }
-        return 0;
     }
 
     decodePackHeader(buffer, offset) {
