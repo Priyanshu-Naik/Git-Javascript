@@ -65,13 +65,13 @@ class CloneCommand {
         const lines = refData.split("\n");
 
         for (const line of lines) {
-            if (line.includes("refs/heads/master")) {
-                const match = line.match(/[a-f0-9]{40}/);
-                if (match) return match[0];
+            const shaMatch = line.match(/^....([a-f0-9]{40})\s+refs\/heads\/master/);
+            if (shaMatch) {
+                return shaMatch[1]; // only return the matched SHA
             }
         }
 
-        throw new Error("HEAD ref not found.");
+        throw new Error("HEAD ref not found in refs.");
     }
 
     async fetchPackfile(sha) {
