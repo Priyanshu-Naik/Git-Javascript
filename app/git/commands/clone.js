@@ -144,7 +144,7 @@ class CloneCommand {
             console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, offset: ${offset}`);
             const slice = pack.slice(offset, offset + 30);
             console.log("Hex preview:", slice.toString("hex"));
-            
+
             offset += headerSize;
 
             if (type === "ref-delta") {
@@ -173,8 +173,11 @@ class CloneCommand {
                 continue;
             }
 
-            const { object, consumed } = this.readInflatedObject(pack.slice(offset));
-            offset += consumed;
+            console.log("Raw before zlib:", pack.slice(offset, offset + 10).toString("hex"));
+
+            const zlibOffset = findZlibStart(pack.slice(offset));
+            const { object, consumed } = this.readInflatedObject(pack.slice(offset + zlibOffset));
+            offset += zlibOffset + consumed;
 
             const header = `${type} ${object.length}\0`;
             const fullObject = Buffer.concat([Buffer.from(header), object]);
@@ -184,6 +187,15 @@ class CloneCommand {
         }
 
         return objects;
+    }
+
+    findZlibStart(buffer) {
+        for (let i = 0; i < 10; i++) {
+            if (buffer[i] === 0x78 && (buffer[i + 1] & 0xF0) === 0x90) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     decodePackHeader(buffer, offset) {
