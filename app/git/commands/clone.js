@@ -140,7 +140,15 @@ class CloneCommand {
 
         for (let i = 0; i < objectCount; i++) {
             const { type, size, headerSize } = this.decodePackHeader(pack, offset);
+
+            console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, offset: ${offset}`);
+
             offset += headerSize;
+
+            if (type === "ref-delta" || type === "ofs-delta") {
+                console.log("⚠️ Skipping delta-compressed object (type:", type, ")");
+                continue; // skip this object safely, don't break the whole loop
+            }
 
             const { object, consumed } = this.readInflatedObject(pack.slice(offset));
             offset += consumed;
@@ -169,7 +177,15 @@ class CloneCommand {
             i++;
         }
 
-        const typeMap = { 1: "commit", 2: "tree", 3: "blob" };
+        const typeMap = {
+            1: "commit",
+            2: "tree",
+            3: "blob",
+            4: "tag",
+            6: "ref-delta",
+            7: "ofs-delta"
+        };
+
         return {
             type: typeMap[type] || "unknown",
             size,
