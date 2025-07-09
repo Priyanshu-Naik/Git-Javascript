@@ -180,10 +180,13 @@ class CloneCommand {
     readInflatedObject(buffer) {
         for (let i = 1; i < buffer.length; i++) {
             try {
-                const inflated = zlib.inflateSync(buffer.slice(0, i));
+                const slice = buffer.slice(0, i);
+                const inflated = zlib.inflateSync(slice);
                 return { object: inflated, consumed: i };
-            } catch {
-                continue;
+            } catch (err) {
+                // Check for truncation only; keep trying
+                if (!err.message.includes("unexpected end of file")) continue;
+                else throw err;
             }
         }
         throw new Error("Inflate failed");
