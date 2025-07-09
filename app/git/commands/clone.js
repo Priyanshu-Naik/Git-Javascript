@@ -160,18 +160,23 @@ class CloneCommand {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
 
                 const baseShaLength = 20;
-                const shaBytes = pack.slice(offset, offset + baseShaLength); // ✅ full SHA
-                console.log("  Base SHA (hex):", shaBytes.toString("hex"));
 
-                // ✅ Advance offset to skip SHA
+                // ✅ Step 1: Read correct 20-byte base SHA
+                const shaBytes = pack.slice(offset, offset + baseShaLength);
+                console.log("  Base SHA (hex):", shaBytes.toString("hex")); // should be 40 hex chars
+
+                // ✅ Step 2: Advance past SHA
                 offset += baseShaLength;
 
+                // ✅ Step 3: Read preview to confirm zlib stream
                 const zlibPreview = pack.slice(offset, offset + 10);
                 console.log("  Raw before zlib (ref-delta):", zlibPreview.toString("hex"));
 
+                // ✅ Step 4: Find zlib offset safely
                 const zlibOffset = findZlibStart(pack.slice(offset));
                 const zlibStart = offset + zlibOffset;
 
+                // ✅ Step 5: Decompress and skip
                 const { consumed } = this.readInflatedObject(pack.slice(zlibStart));
                 offset = zlibStart + consumed;
 
