@@ -145,14 +145,30 @@ class CloneCommand {
 
             offset += headerSize;
 
-            if (type === "ref-delta" || type === "ofs-delta") {
+            if (type === "ref-delta") {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
 
-                // ✅ still read and consume the compressed delta bytes
-                const { consumed } = this.readInflatedObject(pack.slice(offset));
-                offset += consumed;
+                // Skip the 20-byte base SHA before inflating
+                const baseShaLength = 20;
+                const { consumed } = this.readInflatedObject(pack.slice(offset + baseShaLength));
+                offset += baseShaLength + consumed;
 
-                continue; // skip storing
+                continue;
+            }
+
+            if (type === "ofs-delta") {
+                console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
+
+                // Read variable-length offset — Git uses a special format here
+                let deltaOffsetSize = 1;
+                while (pack[offset + deltaOffsetSize - 1] & 0x80) {
+                    deltaOffsetSize++;
+                }
+
+                const { consumed } = this.readInflatedObject(pack.slice(offset + deltaOffsetSize));
+                offset += deltaOffsetSize + consumed;
+
+                continue;
             }
 
             const { object, consumed } = this.readInflatedObject(pack.slice(offset));
