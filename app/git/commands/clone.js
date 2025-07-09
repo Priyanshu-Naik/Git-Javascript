@@ -146,8 +146,13 @@ class CloneCommand {
             offset += headerSize;
 
             if (type === "ref-delta" || type === "ofs-delta") {
-                console.log("⚠️ Skipping delta-compressed object (type:", type, ")");
-                continue; // skip this object safely, don't break the whole loop
+                console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
+
+                // ✅ still read and consume the compressed delta bytes
+                const { consumed } = this.readInflatedObject(pack.slice(offset));
+                offset += consumed;
+
+                continue; // skip storing
             }
 
             const { object, consumed } = this.readInflatedObject(pack.slice(offset));
