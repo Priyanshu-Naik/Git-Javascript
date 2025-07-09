@@ -106,7 +106,7 @@ class CloneCommand {
     }
 
     unpackPackfile(buffer) {
-        const packStart = buffer.indexOf("PACK");
+        const packStart = buffer.indexOf(Buffer.from("PACK")); // ✅ correct        
         if (packStart === -1) throw new Error("PACK header not found");
 
         const pack = buffer.slice(packStart);
