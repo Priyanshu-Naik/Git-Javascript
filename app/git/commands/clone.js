@@ -159,11 +159,13 @@ class CloneCommand {
             if (type === "ref-delta") {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
 
-                const baseShaLength = 20; // 20-byte SHA1 base reference
+                const baseShaLength = 20;
                 const deltaStart = offset + baseShaLength;
 
-                // Find zlib start inside the delta (extra protection, optional)
-                const zlibOffset = findZlibStart(pack.slice(deltaStart));
+                // 🔍 Optional: see what’s coming next
+                console.log("Raw before zlib (ref-delta):", pack.slice(deltaStart, deltaStart + 10).toString("hex"));
+
+                const zlibOffset = findZlibStart(pack.slice(deltaStart)); // safe fallback
                 const { consumed } = this.readInflatedObject(pack.slice(deltaStart + zlibOffset));
 
                 offset += baseShaLength + zlibOffset + consumed;
