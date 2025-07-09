@@ -61,7 +61,7 @@ class CloneCommand {
         return this.httpRequest(options);
     }
 
-    eextractHeadSHA(refData) {
+    extractHeadSHA(refData) {
         const lines = refData.split("\n");
 
         for (const line of lines) {
