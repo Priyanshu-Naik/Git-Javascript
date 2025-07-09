@@ -104,11 +104,6 @@ function handleCloneCommand() {
     const repoUrl = process.argv[3];
     const directory = process.argv[4];
 
-    if (!repoUrl || !directory) {
-        console.error("Usage: clone <repo-url> <directory>");
-        process.exit(1);
-    }
-
     const command = new CloneCommand(repoUrl, directory);
     gitClient.run(command);
 }
