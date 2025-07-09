@@ -24,6 +24,11 @@ class CloneCommand {
         const refsData = await this.fetchRefs();
         const headSHA = this.extractHeadSHA(refsData);
 
+        console.log("HEAD SHA:", headSHA);
+        if (!/^[a-f0-9]{40}$/.test(headSHA)) {
+            throw new Error("Invalid HEAD SHA received: " + headSHA);
+        }
+
         const packResponse = await this.fetchPackfile(headSHA);
         const packData = this.extractPackData(packResponse);
 
@@ -63,7 +68,7 @@ class CloneCommand {
     }
 
     async fetchPackfile(sha) {
-        const requestBody = this.buildUploadPackRequest(sha);
+        const body = this.buildUploadPackRequest(sha);
         const options = {
             hostname: this.parsedUrl.hostname,
             path: `${this.parsedUrl.pathname}/git-upload-pack`,
@@ -71,17 +76,27 @@ class CloneCommand {
             headers: {
                 "Content-Type": "application/x-git-upload-pack-request",
                 "User-Agent": "git/1.0",
-                "Content-Length": Buffer.byteLength(requestBody)
+                "Content-Length": Buffer.byteLength(body)
             }
         };
-        return this.httpRequest(options, requestBody, true);
+
+        console.log("Uploading to:", options.path);
+        console.log("WANT request:\n", body.toString());
+
+        const response = await this.httpRequest(options, body, true);
+
+        fs.writeFileSync("raw-pack-response.bin", response); // Save for inspection
+        console.log("Response length:", response.length);
+        console.log("First bytes:", response.slice(0, 16).toString("hex"));
+
+        return response;
     }
 
     buildUploadPackRequest(sha) {
         const pktLine = (s) => s ? `${(s.length + 4).toString(16).padStart(4, "0")}${s}` : "0000";
         return (
-            pktLine(`want ${sha} multi_ack_detailed side-band-64k thin-pack ofs-delta agent=git/1.0\n`) +
-            pktLine("") +
+            pktLine(`want ${sha} side-band-64k ofs-delta agent=git/1.0\n`) +
+            pktLine("") + // flush after want
             pktLine("done\n")
         );
     }
