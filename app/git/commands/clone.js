@@ -5,8 +5,8 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 
 function findZlibStart(buffer) {
-    for (let i = 0; i < 10; i++) {
-        if (buffer[i] === 0x78 && (buffer[i + 1] & 0xF0) === 0x90) { // basic zlib header
+    for (let i = 0; i < Math.min(10, buffer.length - 1); i++) {
+        if (buffer[i] === 0x78 && (buffer[i + 1] & 0xf0) === 0x90) {
             return i;
         }
     }
@@ -161,22 +161,19 @@ class CloneCommand {
 
                 const baseShaLength = 20;
 
-                // ✅ Step 1: Read correct 20-byte base SHA
+                // ✅ Read exactly 20 bytes
                 const shaBytes = pack.slice(offset, offset + baseShaLength);
-                console.log("  Base SHA (hex):", shaBytes.toString("hex")); // should be 40 hex chars
+                console.log("  Base SHA (hex):", shaBytes.toString("hex")); // ✅ should be 40 chars
 
-                // ✅ Step 2: Advance past SHA
+                // ✅ Move past the SHA
                 offset += baseShaLength;
 
-                // ✅ Step 3: Read preview to confirm zlib stream
                 const zlibPreview = pack.slice(offset, offset + 10);
                 console.log("  Raw before zlib (ref-delta):", zlibPreview.toString("hex"));
 
-                // ✅ Step 4: Find zlib offset safely
                 const zlibOffset = findZlibStart(pack.slice(offset));
                 const zlibStart = offset + zlibOffset;
 
-                // ✅ Step 5: Decompress and skip
                 const { consumed } = this.readInflatedObject(pack.slice(zlibStart));
                 offset = zlibStart + consumed;
 
