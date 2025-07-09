@@ -65,14 +65,7 @@ class CloneCommand {
         const lines = refData.split("\n");
 
         for (const line of lines) {
-            // Find a proper ref line like: 003f<sha> refs/heads/master
             if (line.includes("refs/heads/master")) {
-                const match = line.match(/[a-f0-9]{40}/);
-                if (match) return match[0];
-            }
-
-            // Fallback: extract SHA directly from symref line (if any)
-            if (line.includes("symref=HEAD:refs/heads/master")) {
                 const match = line.match(/[a-f0-9]{40}/);
                 if (match) return match[0];
             }
