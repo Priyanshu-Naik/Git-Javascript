@@ -105,23 +105,31 @@ class CloneCommand {
         return Buffer.from(length + line, "utf8");
     }
 
-    parseRefs(buffer) {
-        const refs = {};
-        const lines = buffer.toString().split("\n");
+    parseRefs(data) {
+        let buffer = Buffer.from(data);
 
-        for (const line of lines) {
-            const match = line.match(/^([0-9a-f]{40}) HEAD/);
-            if (match) {
-                refs["HEAD"] = match[1];
-                break;
+        // Skip the first line: "# service=git-upload-pack"
+        let offset = 0;
+        while (offset < buffer.length) {
+            const lineLengthHex = buffer.slice(offset, offset + 4).toString();
+            const lineLength = parseInt(lineLengthHex, 16);
+
+            if (lineLength === 0) {
+                offset += 4;
+                break; // pkt-flush
             }
+
+            const line = buffer.slice(offset + 4, offset + lineLength).toString();
+            if (line.includes('HEAD')) {
+                const [hash] = line.split(' ');
+                this.headHash = hash;
+                return;
+            }
+
+            offset += lineLength;
         }
 
-        if (!refs["HEAD"]) {
-            throw new Error("HEAD ref not found");
-        }
-
-        return refs;
+        throw new Error("HEAD ref not found");
     }
 
     unpackPack(buffer) {
