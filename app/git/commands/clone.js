@@ -168,21 +168,20 @@ class CloneCommand {
                     console.log("  Base SHA (hex):", shaBytes.toString("hex"));
                     offset += baseShaLength;
 
-                    const deltaData = pack.slice(offset);
-                    const zlibOffset = findZlibStart(deltaData);
-                    const zlibStart = offset + zlibOffset;
+                    const afterSha = pack.slice(offset); // This is where zlib should begin
 
-                    console.log("  Raw before zlib (ref-delta):", deltaData.slice(0, 10).toString("hex"));
+                    const zlibOffset = findZlibStart(afterSha);
+                    const zlibStart = offset + zlibOffset;
+                    const zlibBuf = pack.slice(zlibStart);
 
                     try {
-                        const result = zlib.inflateSync(deltaData.slice(zlibOffset));
+                        const result = zlib.inflateSync(zlibBuf);
                         const consumed = result.length;
                         offset = zlibStart + consumed;
-
                         console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                     } catch (err) {
                         console.error(`❌ Failed to inflate zlib stream at object ${i + 1}`);
-                        console.error("Raw preview:", deltaData.slice(0, 10).toString("hex"));
+                        console.error("Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
                         throw err;
                     }
 
