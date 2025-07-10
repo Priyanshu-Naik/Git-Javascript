@@ -57,6 +57,9 @@ class CloneCommand {
         this.writeGitObjects(objects);
         this.writeHEADFile(headSHA);
 
+        // NEW: Checkout the working directory files
+        await this.checkoutWorkingDirectory(headSHA, objects);
+
         console.log("Cloning completed.");
     }
 
@@ -315,6 +318,118 @@ class CloneCommand {
             }
         }
         throw new Error("Inflate failed");
+    }
+
+    // NEW: Checkout working directory files
+    async checkoutWorkingDirectory(headSHA, objects) {
+        console.log("Checking out working directory files...");
+        
+        // Find the commit object
+        const commitObject = this.findObjectByHash(headSHA, objects);
+        if (!commitObject) {
+            throw new Error(`Commit object ${headSHA} not found`);
+        }
+
+        // Parse the commit to find the tree SHA
+        const commitContent = this.parseGitObject(commitObject);
+        const treeSHA = this.extractTreeSHA(commitContent);
+        
+        console.log("Tree SHA:", treeSHA);
+
+        // Find the tree object
+        const treeObject = this.findObjectByHash(treeSHA, objects);
+        if (!treeObject) {
+            throw new Error(`Tree object ${treeSHA} not found`);
+        }
+
+        // Parse and checkout the tree
+        const treeContent = this.parseGitObject(treeObject);
+        await this.checkoutTree(treeContent, objects, "");
+    }
+
+    findObjectByHash(sha, objects) {
+        return objects[sha] || null;
+    }
+
+    parseGitObject(objectBuffer) {
+        // Find the null byte that separates header from content
+        const nullIndex = objectBuffer.indexOf(0);
+        if (nullIndex === -1) {
+            throw new Error("Invalid Git object format");
+        }
+        
+        const header = objectBuffer.slice(0, nullIndex).toString();
+        const content = objectBuffer.slice(nullIndex + 1);
+        
+        const [type, size] = header.split(' ');
+        return { type, size: parseInt(size), content };
+    }
+
+    extractTreeSHA(commitContent) {
+        const lines = commitContent.content.toString().split('\n');
+        for (const line of lines) {
+            if (line.startsWith('tree ')) {
+                return line.substring(5);
+            }
+        }
+        throw new Error("Tree SHA not found in commit");
+    }
+
+    async checkoutTree(treeContent, objects, basePath) {
+        let offset = 0;
+        const content = treeContent.content;
+        
+        while (offset < content.length) {
+            // Find the next null byte (end of filename)
+            const nullIndex = content.indexOf(0, offset);
+            if (nullIndex === -1) break;
+            
+            // Parse the entry: "mode filename\0<20-byte-sha>"
+            const entry = content.slice(offset, nullIndex).toString();
+            const [mode, filename] = entry.split(' ');
+            
+            // Extract the 20-byte SHA
+            const sha = content.slice(nullIndex + 1, nullIndex + 21);
+            const shaHex = sha.toString('hex');
+            
+            const filePath = path.join(basePath, filename);
+            
+            console.log(`Checking out: ${filePath} (${mode}, ${shaHex})`);
+            
+            if (mode === '40000') {
+                // This is a subdirectory
+                fs.mkdirSync(filePath, { recursive: true });
+                
+                const subTreeObject = this.findObjectByHash(shaHex, objects);
+                if (subTreeObject) {
+                    const subTreeContent = this.parseGitObject(subTreeObject);
+                    await this.checkoutTree(subTreeContent, objects, filePath);
+                }
+            } else {
+                // This is a file
+                const blobObject = this.findObjectByHash(shaHex, objects);
+                if (blobObject) {
+                    const blobContent = this.parseGitObject(blobObject);
+                    
+                    // Ensure the directory exists
+                    const dir = path.dirname(filePath);
+                    if (dir !== '.') {
+                        fs.mkdirSync(dir, { recursive: true });
+                    }
+                    
+                    // Write the file
+                    fs.writeFileSync(filePath, blobContent.content);
+                    
+                    // Set file permissions if needed
+                    if (mode === '100755') {
+                        fs.chmodSync(filePath, 0o755);
+                    }
+                }
+            }
+            
+            // Move to the next entry
+            offset = nullIndex + 21;
+        }
     }
 
     writeGitObjects(objects) {
