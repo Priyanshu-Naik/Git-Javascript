@@ -144,7 +144,7 @@ class CloneCommand {
     }
 
     unpackPackfile(buffer) {
-        const packStart = buffer.indexOf(Buffer.from("PACK")); // ✅ correct        
+        const packStart = buffer.indexOf(Buffer.from("PACK"));
         if (packStart === -1) throw new Error("PACK header not found");
 
         const pack = buffer.slice(packStart);
@@ -153,64 +153,56 @@ class CloneCommand {
         const objectCount = pack.readUInt32BE(8);
         let offset = 12;
         const objects = {};
+        
+        console.log(`Processing ${objectCount} objects from pack file`);
 
         for (let i = 0; i < objectCount; i++) {
-            const { type, size, headerSize } = this.decodePackHeader(pack, offset);
+            try {
+                const startOffset = offset;
+                const { type, size, headerSize } = this.decodePackHeader(pack, offset);
 
-            console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, offset: ${offset}`);
-            const slice = pack.slice(offset, offset + 30);
-            console.log("Hex preview:", slice.toString("hex"));
-
-            offset += headerSize;
-
-            if (type === "ref-delta" || type === "ofs-delta") {
-                console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
-
-                // Skip base SHA for ref-delta (20 bytes)
-                if (type === "ref-delta") {
-                    const baseShaLength = 20;
-                    const shaBytes = pack.slice(offset, offset + baseShaLength);
-                    console.log("  Base SHA (hex):", shaBytes.toString("hex"));
-                    offset += baseShaLength;
-                }
-
-                // Skip varint offset for ofs-delta
-                if (type === "ofs-delta") {
-                    while (pack[offset] & 0x80) {
-                        offset++;
-                    }
-                    offset++; // skip the last byte of the varint
-                }
-
-                // Skip the compressed delta data using the size information
-                // The size from the header tells us the uncompressed size of the delta instructions
-                // We need to find the compressed data and skip it
-                const zlibOffset = findZlibStart(pack.slice(offset));
-                offset += zlibOffset;
+                console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, size: ${size}, offset: ${offset}`);
                 
-                // Use the readInflatedObject method to properly consume the compressed data
-                try {
-                    const { object, consumed } = this.readInflatedObject(pack.slice(offset));
-                    offset += consumed;
-                    console.log(`✔️ Skipped ${type}: moved to offset ${offset}`);
-                } catch (err) {
-                    console.warn(`❌ Failed to inflate ${type}, trying to find next object`);
+                offset += headerSize;
+
+                if (type === "ref-delta" || type === "ofs-delta") {
+                    console.log(`⚠️ Skipping delta object (type: ${type})`);
                     
-                    // Try to find the next object by looking for valid object headers
-                    let foundNext = false;
-                    for (let testOffset = offset + 1; testOffset < pack.length - 10; testOffset++) {
+                    // For ref-delta, skip the 20-byte base SHA
+                    if (type === "ref-delta") {
+                        offset += 20;
+                    }
+                    
+                    // For ofs-delta, skip the negative offset varint
+                    if (type === "ofs-delta") {
+                        while (pack[offset] & 0x80) {
+                            offset++;
+                        }
+                        offset++; // skip the last byte
+                    }
+                    
+                    // Skip the compressed delta data
+                    // We'll use a simple approach: try to find the next object header
+                    let nextObjectFound = false;
+                    
+                    // Start searching from current position
+                    for (let searchPos = offset; searchPos < pack.length - 10; searchPos++) {
                         try {
-                            // Try to decode what looks like an object header
-                            const testByte = pack[testOffset];
-                            const testType = (testByte >> 4) & 0x7;
+                            // Try to decode a potential object header at this position
+                            const testHeader = this.decodePackHeader(pack, searchPos);
                             
-                            // Check if this looks like a valid object type
-                            if (testType >= 1 && testType <= 4) {
-                                const testHeader = this.decodePackHeader(pack, testOffset);
-                                if (testHeader.type && testHeader.type !== "unknown") {
-                                    offset = testOffset;
-                                    foundNext = true;
-                                    console.log(`⚠️ Found next object at offset: ${offset}`);
+                            // Check if this is a valid non-delta object type
+                            if (testHeader.type === "commit" || testHeader.type === "tree" || 
+                                testHeader.type === "blob" || testHeader.type === "tag") {
+                                
+                                // Verify there's zlib data after the header
+                                const afterHeader = searchPos + testHeader.headerSize;
+                                const zlibCheck = this.findZlibAtPosition(pack, afterHeader);
+                                
+                                if (zlibCheck !== -1) {
+                                    offset = searchPos;
+                                    nextObjectFound = true;
+                                    console.log(`✔️ Found next object at offset: ${offset}`);
                                     break;
                                 }
                             }
@@ -219,31 +211,62 @@ class CloneCommand {
                         }
                     }
                     
-                    if (!foundNext) {
-                        throw new Error(`Cannot find next object after ${type} at offset ${offset}`);
+                    if (!nextObjectFound) {
+                        console.warn(`⚠️ Could not find next object after ${type}, stopping parsing`);
+                        break;
                     }
+                    
+                    // Continue to next iteration without processing this delta
+                    continue;
+                }
+
+                // Process regular objects (commit, tree, blob, tag)
+                const zlibStart = this.findZlibAtPosition(pack, offset);
+                if (zlibStart === -1) {
+                    console.warn(`⚠️ No zlib data found for ${type} object at offset ${offset}`);
+                    continue;
                 }
                 
-                // Move to next iteration (don't process this delta object)
-                continue;
+                offset = zlibStart;
+                
+                try {
+                    const { object, consumed } = this.readInflatedObject(pack.slice(offset));
+                    offset += consumed;
+
+                    const header = `${type} ${object.length}\0`;
+                    const fullObject = Buffer.concat([Buffer.from(header), object]);
+                    const sha = crypto.createHash("sha1").update(fullObject).digest("hex");
+
+                    objects[sha] = fullObject;
+                    console.log(`✔️ Processed ${type} object: ${sha}`);
+                } catch (err) {
+                    console.warn(`⚠️ Failed to process ${type} object at offset ${offset}: ${err.message}`);
+                    continue;
+                }
+                
+            } catch (err) {
+                console.warn(`⚠️ Error processing object ${i + 1}: ${err.message}`);
+                break;
             }
-
-            console.log("Raw before zlib:", pack.slice(offset, offset + 10).toString("hex"));
-
-            const zlibOffset = findZlibStart(pack.slice(offset));
-            const { object, consumed } = this.readInflatedObject(pack.slice(offset + zlibOffset));
-            offset += zlibOffset + consumed;
-
-            const header = `${type} ${object.length}\0`;
-            const fullObject = Buffer.concat([Buffer.from(header), object]);
-            const sha = crypto.createHash("sha1").update(fullObject).digest("hex");
-
-            console.log(`   → Zlib stream begins at offset: ${offset - consumed + zlibOffset}`);
-
-            objects[sha] = fullObject;
         }
 
+        console.log(`Successfully processed ${Object.keys(objects).length} objects`);
         return objects;
+    }
+
+    findZlibAtPosition(buffer, startPos) {
+        // Look for zlib header within reasonable range
+        for (let i = 0; i < 20 && startPos + i < buffer.length - 1; i++) {
+            const pos = startPos + i;
+            const byte1 = buffer[pos];
+            const byte2 = buffer[pos + 1];
+            
+            // Check for zlib magic bytes
+            if (byte1 === 0x78 && (byte2 === 0x9c || byte2 === 0x01 || byte2 === 0xda || byte2 === 0x5e)) {
+                return pos;
+            }
+        }
+        return -1;
     }
 
     decodePackHeader(buffer, offset) {
