@@ -156,54 +156,10 @@ class CloneCommand {
 
             offset += headerSize;
 
-            if (type === "ref-delta") {
+            if (type === "ref-delta" || type === "ofs-delta") {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
-
-                const baseShaLength = 20;
-                const shaBytes = pack.slice(offset, offset + baseShaLength);
-                console.log("  Base SHA (hex):", shaBytes.toString("hex"));
-                offset += baseShaLength;
-
-                const preview = pack.slice(offset, offset + 10);
-                console.log("  Raw before zlib (ref-delta):", preview.toString("hex"));
-
-                // Attempt to find zlib start and decompress
-                const zlibOffset = findZlibStart(pack.slice(offset));
-                const zlibStart = offset + zlibOffset;
-                const zlibBuf = pack.slice(zlibStart);
-
-
-                let result, consumed;
-                try {
-                    result = zlib.inflateSync(zlibBuf);
-                    consumed = result.length;
-                    offset = zlibStart + consumed;
-                } catch (err) {
-                    console.error("❌ Failed to inflate zlib stream at object", i + 1);
-                    console.error("Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
-                    throw err;
-                }
-
-                offset = zlibStart + consumed;
-                console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                 continue;
             }
-
-            if (type === "ofs-delta") {
-                console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
-
-                // Read variable-length offset — Git uses a special format here
-                let deltaOffsetSize = 1;
-                while (pack[offset + deltaOffsetSize - 1] & 0x80) {
-                    deltaOffsetSize++;
-                }
-
-                const { consumed } = this.readInflatedObject(pack.slice(offset + deltaOffsetSize));
-                offset += deltaOffsetSize + consumed;
-
-                continue;
-            }
-
             console.log("Raw before zlib:", pack.slice(offset, offset + 10).toString("hex"));
 
             const zlibOffset = findZlibStart(pack.slice(offset));
