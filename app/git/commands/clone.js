@@ -175,14 +175,16 @@ class CloneCommand {
 
                     // You MUST skip over the zlib data too — or the offset will be wrong for next object
                     try {
-                        const result = zlib.inflateSync(pack.slice(offset + zlibOffset));
-                        offset += zlibOffset + result.length;
+                        const slice = pack.slice(offset);
+                        const zlibOffset = findZlibStart(slice);
+                        const inflated = zlib.inflateSync(slice.slice(zlibOffset));
+                        offset += zlibOffset + inflated.length;
                         console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                     } catch (err) {
-                        console.warn(`⚠️ Can't inflate delta data — skipping to next object blindly`);
-                        // Optionally just increment offset by some rough guess (NOT IDEAL but prevents crash)
-                        // offset += zlibOffset + 100; // Temporary fallback
-                        throw err; // safer to crash for now
+                        // If you still want to skip the object instead of crashing:
+                        console.warn("⚠️ Failed to inflate delta data. Skipping blindly by estimating offset.");
+                        offset += 20; // Base SHA
+                        offset += 100; // Arbitrary guess to skip — not perfect but allows progress
                     }
 
                     continue;
