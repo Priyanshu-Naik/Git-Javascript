@@ -166,23 +166,23 @@ class CloneCommand {
                     const baseShaLength = 20;
                     const shaBytes = pack.slice(offset, offset + baseShaLength);
                     console.log("  Base SHA (hex):", shaBytes.toString("hex"));
+
                     offset += baseShaLength;
 
-                    const afterSha = pack.slice(offset); // This is where zlib should begin
+                    const zlibOffset = findZlibStart(pack.slice(offset));
+                    const preview = pack.slice(offset + zlibOffset, offset + zlibOffset + 10);
+                    console.log("  🔍 Skipping raw delta data (not inflated). Preview:", preview.toString("hex"));
 
-                    const zlibOffset = findZlibStart(afterSha);
-                    const zlibStart = offset + zlibOffset;
-                    const zlibBuf = pack.slice(zlibStart);
-
+                    // You MUST skip over the zlib data too — or the offset will be wrong for next object
                     try {
-                        const result = zlib.inflateSync(zlibBuf);
-                        const consumed = result.length;
-                        offset = zlibStart + consumed;
+                        const result = zlib.inflateSync(pack.slice(offset + zlibOffset));
+                        offset += zlibOffset + result.length;
                         console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                     } catch (err) {
-                        console.error(`❌ Failed to inflate zlib stream at object ${i + 1}`);
-                        console.error("Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
-                        throw err;
+                        console.warn(`⚠️ Can't inflate delta data — skipping to next object blindly`);
+                        // Optionally just increment offset by some rough guess (NOT IDEAL but prevents crash)
+                        // offset += zlibOffset + 100; // Temporary fallback
+                        throw err; // safer to crash for now
                     }
 
                     continue;
