@@ -184,8 +184,14 @@ class CloneCommand {
                         console.warn("❌ Failed to inflate ref-delta — skipping with fallback.");
                         console.warn("  Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
 
-                        // As a fallback, skip more bytes to get to next object's header
-                        offset = zlibStart + 300;
+                        let guessOffset = zlibStart;
+                        while (guessOffset < pack.length && pack[guessOffset] !== 0x78) { // zlib magic byte
+                            guessOffset++;
+                        }
+
+                        // Try to skip ~512 bytes after that safely
+                        offset = guessOffset + 512;
+                        console.log(`⚠️ Blind skip to offset ${offset}`);
                     }
 
                     continue;
