@@ -162,24 +162,20 @@ class CloneCommand {
                 // → Optional: skip base SHA (20 bytes) for ref-delta
                 if (type === "ref-delta") {
                     console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
-
                     const baseShaLength = 20;
                     const shaBytes = pack.slice(offset, offset + baseShaLength);
                     console.log("  Base SHA (hex):", shaBytes.toString("hex"));
                     offset += baseShaLength;
 
-                    const preview = pack.slice(offset, offset + 10);
-                    console.log("  Raw before zlib (ref-delta):", preview.toString("hex"));
-
+                    const zlibStart = findZlibStart(pack.slice(offset));
+                    const slice = pack.slice(offset + zlibStart);
                     try {
-                        const zlibOffset = findZlibStart(pack.slice(offset));
-                        const zlibBuf = pack.slice(offset + zlibOffset);
-                        const result = zlib.inflateSync(zlibBuf);
-                        const consumed = result.length;
-                        offset += zlibOffset + consumed;
+                        const inflated = zlib.inflateSync(slice);
+                        offset += zlibStart + inflated.length;
+                        console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                     } catch (err) {
-                        console.warn("⚠️ Failed to inflate delta data. Skipping blindly by estimating offset.");
-                        offset += 100; // ← YOU MUST actually skip or it'll break
+                        console.warn("❌ Could not inflate ref-delta — skipping ~100 bytes.");
+                        offset += zlibStart + 100; // fallback
                     }
 
                     continue;
