@@ -166,25 +166,20 @@ class CloneCommand {
                     const baseShaLength = 20;
                     const shaBytes = pack.slice(offset, offset + baseShaLength);
                     console.log("  Base SHA (hex):", shaBytes.toString("hex"));
-
                     offset += baseShaLength;
 
-                    const zlibOffset = findZlibStart(pack.slice(offset));
-                    const preview = pack.slice(offset + zlibOffset, offset + zlibOffset + 10);
-                    console.log("  🔍 Skipping raw delta data (not inflated). Preview:", preview.toString("hex"));
+                    const preview = pack.slice(offset, offset + 10);
+                    console.log("  Raw before zlib (ref-delta):", preview.toString("hex"));
 
-                    // You MUST skip over the zlib data too — or the offset will be wrong for next object
                     try {
-                        const slice = pack.slice(offset);
-                        const zlibOffset = findZlibStart(slice);
-                        const inflated = zlib.inflateSync(slice.slice(zlibOffset));
-                        offset += zlibOffset + inflated.length;
-                        console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
+                        const zlibOffset = findZlibStart(pack.slice(offset));
+                        const zlibBuf = pack.slice(offset + zlibOffset);
+                        const result = zlib.inflateSync(zlibBuf);
+                        const consumed = result.length;
+                        offset += zlibOffset + consumed;
                     } catch (err) {
-                        // If you still want to skip the object instead of crashing:
                         console.warn("⚠️ Failed to inflate delta data. Skipping blindly by estimating offset.");
-                        offset += 20; // Base SHA
-                        offset += 100; // Arbitrary guess to skip — not perfect but allows progress
+                        offset += 100; // ← YOU MUST actually skip or it'll break
                     }
 
                     continue;
