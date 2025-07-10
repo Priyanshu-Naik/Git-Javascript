@@ -184,14 +184,13 @@ class CloneCommand {
                         console.warn("❌ Failed to inflate ref-delta — skipping with fallback.");
                         console.warn("  Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
 
-                        let guessOffset = zlibStart;
-                        while (guessOffset < pack.length && pack[guessOffset] !== 0x78) { // zlib magic byte
-                            guessOffset++;
+                        let zlibHeaderIndex = zlibBuf.indexOf(Buffer.from([0x78, 0x9c]), 10); // skip some delta metadata
+                        if (zlibHeaderIndex !== -1) {
+                            offset += zlibHeaderIndex;
+                            console.warn(`⚠️ Blindly skipped to next zlib header at offset: ${offset}`);
+                        } else {
+                            throw new Error("Can't recover from bad delta-compressed object.");
                         }
-
-                        // Try to skip ~512 bytes after that safely
-                        offset = guessOffset + 512;
-                        console.log(`⚠️ Blind skip to offset ${offset}`);
                     }
 
                     continue;
