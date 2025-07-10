@@ -159,49 +159,77 @@ class CloneCommand {
             if (type === "ref-delta" || type === "ofs-delta") {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
 
-                // → Optional: skip base SHA (20 bytes) for ref-delta
+                // Skip base SHA for ref-delta (20 bytes)
                 if (type === "ref-delta") {
-                    console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
-
-                    // 1. Read base SHA
                     const baseShaLength = 20;
                     const shaBytes = pack.slice(offset, offset + baseShaLength);
                     console.log("  Base SHA (hex):", shaBytes.toString("hex"));
                     offset += baseShaLength;
+                }
 
-                    // 2. Find zlib start
-                    const zlibOffset = findZlibStart(pack.slice(offset));
-                    const zlibStart = offset + zlibOffset;
+                // Skip varint offset for ofs-delta
+                if (type === "ofs-delta") {
+                    while (pack[offset] & 0x80) {
+                        offset++;
+                    }
+                    offset++; // skip the last byte of the varint
+                }
+
+                // Find and skip the zlib-compressed delta data
+                const zlibOffset = findZlibStart(pack.slice(offset));
+                const zlibStart = offset + zlibOffset;
+                
+                try {
+                    // Try to inflate to determine the compressed size
                     const zlibBuf = pack.slice(zlibStart);
-
-                    try {
-                        const result = zlib.inflateSync(zlibBuf);
-                        const consumed = result.length;
-
-                        offset = zlibStart + consumed;
-                        console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
-                    } catch (err) {
-                        console.warn("❌ Failed to inflate ref-delta — skipping with fallback.");
-                        console.warn("  Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
-
-                        let zlibHeaderIndex = zlibBuf.indexOf(Buffer.from([0x78, 0x9c]), 10); // skip some delta metadata
-                        if (zlibHeaderIndex !== -1) {
-                            offset += zlibHeaderIndex;
-                            console.warn(`⚠️ Blindly skipped to next zlib header at offset: ${offset}`);
-                        } else {
-                            throw new Error("Can't recover from bad delta-compressed object.");
+                    const inflated = zlib.inflateSync(zlibBuf);
+                    
+                    // Find the actual end of the compressed data
+                    let compressedSize = 0;
+                    for (let testSize = 1; testSize <= zlibBuf.length; testSize++) {
+                        try {
+                            const testBuf = zlibBuf.slice(0, testSize);
+                            const testInflated = zlib.inflateSync(testBuf);
+                            if (testInflated.length === inflated.length) {
+                                compressedSize = testSize;
+                                break;
+                            }
+                        } catch (e) {
+                            // Continue searching
                         }
                     }
-
-                    return;
+                    
+                    if (compressedSize === 0) {
+                        throw new Error("Could not determine compressed size");
+                    }
+                    
+                    offset = zlibStart + compressedSize;
+                    console.log(`✔️ Skipped ${type}: moved to offset ${offset}`);
+                } catch (err) {
+                    console.warn(`❌ Failed to process ${type} — using fallback skip`);
+                    // Fallback: try to find the next object header
+                    let foundNext = false;
+                    for (let skip = 10; skip < 1000 && offset + skip < pack.length; skip++) {
+                        try {
+                            const testOffset = offset + skip;
+                            const testHeader = this.decodePackHeader(pack, testOffset);
+                            if (testHeader.type && testHeader.type !== "unknown") {
+                                offset = testOffset;
+                                foundNext = true;
+                                console.log(`⚠️ Skipped to next object at offset: ${offset}`);
+                                break;
+                            }
+                        } catch (e) {
+                            // Continue searching
+                        }
+                    }
+                    
+                    if (!foundNext) {
+                        throw new Error(`Cannot recover from bad ${type} object`);
+                    }
                 }
-
-                // → Optional: skip varint offset for ofs-delta
-                if (type === "ofs-delta") {
-                    while (pack[offset++] & 0x80) { } // skip offset varint
-                }
-
-                // Skip zlib-compressed delta instructions (approx, or continue without consuming)
+                
+                // Move to next iteration (don't process this delta object)
                 continue;
             }
 
@@ -215,7 +243,7 @@ class CloneCommand {
             const fullObject = Buffer.concat([Buffer.from(header), object]);
             const sha = crypto.createHash("sha1").update(fullObject).digest("hex");
 
-            console.log(`   → Zlib stream begins at offset: ${offset + zlibOffset}`);
+            console.log(`   → Zlib stream begins at offset: ${offset - consumed + zlibOffset}`);
 
             objects[sha] = fullObject;
         }
