@@ -162,22 +162,32 @@ class CloneCommand {
                 // → Optional: skip base SHA (20 bytes) for ref-delta
                 if (type === "ref-delta") {
                     console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
+
+                    // 1. Read base SHA
                     const baseShaLength = 20;
                     const shaBytes = pack.slice(offset, offset + baseShaLength);
                     console.log("  Base SHA (hex):", shaBytes.toString("hex"));
                     offset += baseShaLength;
 
-                    const zlibStart = findZlibStart(pack.slice(offset));
-                    const slice = pack.slice(offset + zlibStart);
+                    // 2. Find zlib start
+                    const zlibOffset = findZlibStart(pack.slice(offset));
+                    const zlibStart = offset + zlibOffset;
+                    const zlibBuf = pack.slice(zlibStart);
+
                     try {
-                        const inflated = zlib.inflateSync(pack.slice(offset + zlibStart));
-                        offset += zlibStart + inflated.length;
+                        const result = zlib.inflateSync(zlibBuf);
+                        const consumed = result.length;
+
+                        offset = zlibStart + consumed;
+                        console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                     } catch (err) {
-                        console.warn("❌ Failed to inflate ref-delta — skipping blindly.");
-                        offset += zlibStart + 300; // pick a larger fallback
+                        console.warn("❌ Failed to inflate ref-delta — skipping with fallback.");
+                        console.warn("  Raw preview:", zlibBuf.slice(0, 10).toString("hex"));
+
+                        // As a fallback, skip more bytes to get to next object's header
+                        offset = zlibStart + 300;
                     }
-                    console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, offset: ${offset}`);
-                    console.log(`    → Zlib stream begins at offset: ${offset}`);
+
                     continue;
                 }
 
