@@ -158,6 +158,18 @@ class CloneCommand {
 
             if (type === "ref-delta" || type === "ofs-delta") {
                 console.log(`⚠️ Skipping delta-compressed object (type: ${type})`);
+
+                // → Optional: skip base SHA (20 bytes) for ref-delta
+                if (type === "ref-delta") {
+                    offset += 20;
+                }
+
+                // → Optional: skip varint offset for ofs-delta
+                if (type === "ofs-delta") {
+                    while (pack[offset++] & 0x80) { } // skip offset varint
+                }
+
+                // Skip zlib-compressed delta instructions (approx, or continue without consuming)
                 continue;
             }
             console.log("Raw before zlib:", pack.slice(offset, offset + 10).toString("hex"));
