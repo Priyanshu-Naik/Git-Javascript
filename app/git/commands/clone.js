@@ -170,14 +170,14 @@ class CloneCommand {
                     const zlibStart = findZlibStart(pack.slice(offset));
                     const slice = pack.slice(offset + zlibStart);
                     try {
-                        const inflated = zlib.inflateSync(slice);
+                        const inflated = zlib.inflateSync(pack.slice(offset + zlibStart));
                         offset += zlibStart + inflated.length;
-                        console.log(`✔️ Skipped ref-delta: moved to offset ${offset}`);
                     } catch (err) {
-                        console.warn("❌ Could not inflate ref-delta — skipping ~100 bytes.");
-                        offset += zlibStart + 100; // fallback
+                        console.warn("❌ Failed to inflate ref-delta — skipping blindly.");
+                        offset += zlibStart + 300; // pick a larger fallback
                     }
-
+                    console.log(`→ Object ${i + 1}/${objectCount}, type: ${type}, offset: ${offset}`);
+                    console.log(`    → Zlib stream begins at offset: ${offset}`);
                     continue;
                 }
 
