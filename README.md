@@ -1,59 +1,48 @@
-[![progress-banner](https://backend.codecrafters.io/progress/git/6cb4d36f-5b09-47ba-b420-35bca4de41f2)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+This repo contains my implementation of git as part of the CodeCrafters challenge, written in JavaScript.
 
-This is a starting point for JavaScript solutions to the
-["Build Your Own Git" Challenge](https://codecrafters.io/challenges/git).
+The goal was to recreate Git from scratch, building core features like:
+	•	git init
+	•	git hash-object
+	•	git cat-file
+	•	git commit
+	•	git clone (Smart HTTP protocol, packfile unpacking, etc.)
 
-In this challenge, you'll build a small Git implementation that's capable of
-initializing a repository, creating commits and cloning a public repository.
-Along the way we'll learn about the `.git` directory, Git objects (blobs,
-commits, trees etc.), Git's transfer protocols and more.
+I gained hands-on experience with:
+	•	Git internals (objects, trees, commits, deltas)
+	•	Packfile encoding/decoding
+	•	Zlib compression, SHA-1 hashing
+	•	Smart HTTP protocol for cloning
+	•	Rebuilding the .git directory structure from raw bytes
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+⸻
 
-# Passing the first stage
+⚠️ Note on Running Locally
 
-The entry point for your Git implementation is in `app/main.js`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+To avoid accidentally modifying your real Git repo, you should not run your_program.sh from inside a Git repository (like this one). Instead, test it from a safe directory like /tmp.
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
+Usage:
+mkdir -p /tmp/git-test && cd /tmp/git-test
+/path/to/your_program.sh init
 
-That's all!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `node (21)` installed locally
-1. Run `./your_program.sh` to run your Git implementation, which is implemented
-   in `app/main.js`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
-
-# Testing locally
-
-The `your_program.sh` script is expected to operate on the `.git` folder inside
-the current working directory. If you're running this inside the root of this
-repository, you might end up accidentally damaging your repository's `.git`
-folder.
-
-We suggest executing `your_program.sh` in a different folder when testing
-locally. For example:
-
-```sh
-mkdir -p /tmp/testing && cd /tmp/testing
-/path/to/your/repo/your_program.sh init
-```
-
-To make this easier to type out, you could add a
-[shell alias](https://shapeshed.com/unix-alias/):
-
-```sh
-alias mygit=/path/to/your/repo/your_program.sh
-
-mkdir -p /tmp/testing && cd /tmp/testing
+To simplify usage, you can also create a shell alias:
+alias mygit=/path/to/your_program.sh
+mkdir -p /tmp/git-test && cd /tmp/git-test
 mygit init
-```
+
+Features Implemented
+	•	Git object creation and hashing
+	•	Tree and commit object serialization
+	•	Git repository initialization
+	•	Custom packfile parsing & object unpacking (for git clone)
+	•	SHA-1-based object storage
+	•	Smart HTTP protocol handling
+
+ Debugging the Final Stretch
+
+The last challenge — unpacking and reconstructing Git objects from a packfile during git clone — was the most difficult and time-consuming. After extensive trial and error, I turned to Claude AI, which helped me trace a subtle zlib offset issue and finalize the solution.
+
+⸻
+
+📚 Learnings
+
+This challenge was an incredible way to understand how Git actually works under the hood. It gave me hands-on exposure to zlib compression, SHA-1 hashing, binary formats, and low-level Git plumbing commands.
