@@ -193,13 +193,6 @@ class CloneCommand {
                         }
                     }
 
-                    const dummySha = `skipped-delta-${this.objects.size}`;
-                    this.objects.set(dummySha, {
-                        type: "delta",
-                        content: null,
-                        base: baseSha
-                    });
-
                     return;
                 }
 
