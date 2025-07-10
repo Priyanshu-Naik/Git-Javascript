@@ -193,7 +193,7 @@ class CloneCommand {
                         }
                     }
 
-                    continue;
+                    return;
                 }
 
                 // → Optional: skip varint offset for ofs-delta
