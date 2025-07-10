@@ -5,9 +5,16 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 
 function findZlibStart(buffer) {
-    for (let i = 0; i < Math.min(10, buffer.length - 1); i++) {
-        if (buffer[i] === 0x78 && (buffer[i + 1] & 0xf0) === 0x90) {
-            return i;
+    // Look for zlib header patterns
+    for (let i = 0; i < Math.min(20, buffer.length - 1); i++) {
+        const byte1 = buffer[i];
+        const byte2 = buffer[i + 1];
+        
+        // Check for common zlib headers
+        if (byte1 === 0x78) {
+            if (byte2 === 0x9c || byte2 === 0x01 || byte2 === 0xda || byte2 === 0x5e) {
+                return i;
+            }
         }
     }
     return 0;
@@ -175,49 +182,37 @@ class CloneCommand {
                     offset++; // skip the last byte of the varint
                 }
 
-                // Find and skip the zlib-compressed delta data
+                // Skip the compressed delta data using the size information
+                // The size from the header tells us the uncompressed size of the delta instructions
+                // We need to find the compressed data and skip it
                 const zlibOffset = findZlibStart(pack.slice(offset));
-                const zlibStart = offset + zlibOffset;
+                offset += zlibOffset;
                 
+                // Use the readInflatedObject method to properly consume the compressed data
                 try {
-                    // Try to inflate to determine the compressed size
-                    const zlibBuf = pack.slice(zlibStart);
-                    const inflated = zlib.inflateSync(zlibBuf);
-                    
-                    // Find the actual end of the compressed data
-                    let compressedSize = 0;
-                    for (let testSize = 1; testSize <= zlibBuf.length; testSize++) {
-                        try {
-                            const testBuf = zlibBuf.slice(0, testSize);
-                            const testInflated = zlib.inflateSync(testBuf);
-                            if (testInflated.length === inflated.length) {
-                                compressedSize = testSize;
-                                break;
-                            }
-                        } catch (e) {
-                            // Continue searching
-                        }
-                    }
-                    
-                    if (compressedSize === 0) {
-                        throw new Error("Could not determine compressed size");
-                    }
-                    
-                    offset = zlibStart + compressedSize;
+                    const { object, consumed } = this.readInflatedObject(pack.slice(offset));
+                    offset += consumed;
                     console.log(`✔️ Skipped ${type}: moved to offset ${offset}`);
                 } catch (err) {
-                    console.warn(`❌ Failed to process ${type} — using fallback skip`);
-                    // Fallback: try to find the next object header
+                    console.warn(`❌ Failed to inflate ${type}, trying to find next object`);
+                    
+                    // Try to find the next object by looking for valid object headers
                     let foundNext = false;
-                    for (let skip = 10; skip < 1000 && offset + skip < pack.length; skip++) {
+                    for (let testOffset = offset + 1; testOffset < pack.length - 10; testOffset++) {
                         try {
-                            const testOffset = offset + skip;
-                            const testHeader = this.decodePackHeader(pack, testOffset);
-                            if (testHeader.type && testHeader.type !== "unknown") {
-                                offset = testOffset;
-                                foundNext = true;
-                                console.log(`⚠️ Skipped to next object at offset: ${offset}`);
-                                break;
+                            // Try to decode what looks like an object header
+                            const testByte = pack[testOffset];
+                            const testType = (testByte >> 4) & 0x7;
+                            
+                            // Check if this looks like a valid object type
+                            if (testType >= 1 && testType <= 4) {
+                                const testHeader = this.decodePackHeader(pack, testOffset);
+                                if (testHeader.type && testHeader.type !== "unknown") {
+                                    offset = testOffset;
+                                    foundNext = true;
+                                    console.log(`⚠️ Found next object at offset: ${offset}`);
+                                    break;
+                                }
                             }
                         } catch (e) {
                             // Continue searching
@@ -225,7 +220,7 @@ class CloneCommand {
                     }
                     
                     if (!foundNext) {
-                        throw new Error(`Cannot recover from bad ${type} object`);
+                        throw new Error(`Cannot find next object after ${type} at offset ${offset}`);
                     }
                 }
                 
