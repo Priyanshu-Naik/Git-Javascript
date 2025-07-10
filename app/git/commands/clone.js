@@ -172,6 +172,7 @@ class CloneCommand {
                 // Skip zlib-compressed delta instructions (approx, or continue without consuming)
                 continue;
             }
+
             console.log("Raw before zlib:", pack.slice(offset, offset + 10).toString("hex"));
 
             const zlibOffset = findZlibStart(pack.slice(offset));
@@ -181,6 +182,8 @@ class CloneCommand {
             const header = `${type} ${object.length}\0`;
             const fullObject = Buffer.concat([Buffer.from(header), object]);
             const sha = crypto.createHash("sha1").update(fullObject).digest("hex");
+
+            console.log(`   → Zlib stream begins at offset: ${offset + zlibOffset}`);
 
             objects[sha] = fullObject;
         }
